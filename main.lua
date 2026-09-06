@@ -107,7 +107,7 @@ local get_all_state_records = ya.sync(function(state)
   -- need to deep clone the map
   ---@type table<string, Record>
   local records = {}
-  for k, v in pairs(state.records) do
+  for k, v in pairs(state.records or {}) do
     records[k] = {
       uri = Url(v.uri), -- clone
       visited = v.visited,
@@ -126,7 +126,7 @@ end)
 ---@type fun(recents_url: Url): Record?
 local get_record_for_recents = ya.sync(function(state, recents_url)
   local key = recents_record_key(recents_url)
-  if not key then
+  if not key or not state.records then
     return nil
   end
   local v = state.records[key]
@@ -147,7 +147,7 @@ end)
 
 ---@type fun(): boolean
 local get_state_records_init = ya.sync(function(state)
-  return state.records_init
+  return state.records_init == true -- handles nil
 end)
 ---@type fun(init: boolean)
 local set_state_records_init = ya.sync(function(state, init)
@@ -156,7 +156,7 @@ end)
 
 ---@type fun(): integer
 local get_state_recently_used_mtime = ya.sync(function(state)
-  return state.recently_used_mtime
+  return state.recently_used_mtime or 0
 end)
 ---@type fun(mtime: integer)
 local set_state_recently_used_mtime = ya.sync(function(state, mtime)
@@ -592,12 +592,6 @@ function M:provide(job)
   local res = fn(self, job)
   -- ya.dbg("response", res)
   return res
-end
-
-function M:setup(state, opts)
-  state.records = {}
-  state.records_init = false
-  state.recently_used_mtime = 0
 end
 
 --- borrowed from https://github.com/yazi-rs/plugins/blob/4dc7f1b6458c2578f4494f10d468c68c1082214f/chmod.yazi/main.lua#L3-L12
