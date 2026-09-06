@@ -12,6 +12,15 @@ local DATA_HOME = XDG_DATA_HOME and Path.os(XDG_DATA_HOME) or Path.os(os.getenv(
 -- path to recently-used.xbel (~/.local/share/recently-used.xbel by default)
 local RECENTLY_USED = Url(DATA_HOME:join("recently-used.xbel"))
 
+-- empty recently-used.xbel file
+local RECENTLY_USED_TEMPLATE = [[
+<?xml version="1.0" encoding="UTF-8"?>
+<xbel version="1.0"
+      xmlns:bookmark="http://www.freedesktop.org/standards/desktop-bookmarks"
+      xmlns:mime="http://www.freedesktop.org/standards/shared-mime-info"
+></xbel>
+]]
+
 ---parse (subset of) iso 8601 datetime
 ---@param datetime string
 ---@return number?
@@ -395,8 +404,7 @@ local function add_recent(local_url)
     "-s", "$prev", "-t", "attr", "-n", "owner", "-v", "http://freedesktop.org",
     "-s", "$prev/..", "-t", "elem", "-n", "mime:mime-type",
     "-s", "$prev", "-t", "attr", "-n", "type", "-v", mime,
-
-    "-s", "$prev/..", "-t", "elem", "-n", "bookmark:applications",
+    "-a", "$prev/..", "-t", "elem", "-n", "bookmark:applications",
 
     tostring(RECENTLY_USED),
   }
@@ -427,17 +435,27 @@ local function add_recent(local_url)
     "-u", app_bookmark_xpath .. "/@count", "-x", ". + 1"
   }
 
-  -- check if bookmark exists
+
+  -- make sure file exists
+  local fd, err = fs.access()
+      :create_new(true)
+      :write(true)
+      :open(RECENTLY_USED)
+  if fd and not err then
+    -- create default of it does not
+    fd:write_all(RECENTLY_USED_TEMPLATE)
+    fd:flush()
+    ya.drop(fd)
+  end
+
   local stdout, err, status = xmlstarlet(update_bookmark_cmd)
   if err or not stdout or not status or not status.success then
     return err or Err("failed to run update_bookmark")
   end
-
   local stdout, err, status = xmlstarlet_stdin(stdout, add_app_cmd)
   if err or not stdout or not status or not status.success then
     return err or Err("failed to run add_app")
   end
-
   local stdout, err, status = xmlstarlet_stdin(stdout, update_app_cmd)
   if err or not stdout or not status or not status.success then
     return err or Err("failed to run update_app")
