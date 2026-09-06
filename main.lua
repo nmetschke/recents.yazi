@@ -372,12 +372,18 @@ local function add_recent(local_url)
   end
 
   local timestamp_formated = iso_8601_timestamp(ya.time())
-  local mime = "text/plain"
 
-  -- TODO: locking
+  -- query mime
+  local next = require("mime.local"):fetch({
+    files = { File {
+      cha = fs.cha(local_url),
+      url = local_url
+    } }
+  })
+  local _, result = next()
+  local mime = result[1] or "text/plain"
 
   local bookmark_xpath = ("/xbel/bookmark[@href=%s]"):format(xpath_quoted(href))
-
 
   -- need multiple calls here to work around https://martin7th.github.io/xmlstarlet-notes/#namespaces-insert-issue
   local update_bookmark_cmd = {
