@@ -27,6 +27,15 @@ function parse_iso8601(datetime)
   return timestamp + 1. / subsec
 end
 
+---format timestamp as iso 8601
+---@param timestamp number
+---@return string
+local function iso_8601_timestamp(timestamp)
+  local ms = math.floor((timestamp % 1) * 1000)
+  local epochSeconds = math.floor(timestamp)
+  return os.date("!%Y-%m-%dT%T", epochSeconds) .. "." .. ms .. "Z"
+end
+
 ---get record key for local url
 ---@param url Url
 ---@return string
@@ -38,6 +47,10 @@ end
 ---@param recents_url Url
 ---@return string?
 local function recents_record_key(recents_url)
+  if recents_url.spec.scheme ~= "recents" then
+    ya.err(recents_url, "is not recents", recents_url.spec.scheme)
+    return nil
+  end
   return recents_url.parent and recents_url.parent.name
 end
 
@@ -45,8 +58,6 @@ end
 ---@param url Url
 ---@return Url?
 local function fs_to_recents_url(url)
-  ya.dbg("url is", url)
-
   if not url.spec.is_regular then
     ya.err(url, "is not regular")
     return nil
@@ -167,21 +178,30 @@ end
 
 ---Run a shell command, return stdout on success, show error on failure
 ---@param cmd string
+---@param stdin string?
 ---@param ... any
----@return string?, Error?
-local function run_cmd(cmd, ...)
-  local cmd_builder = Command(cmd):arg(...)
-  local output, err = cmd_builder:output()
-
+---@return string?, Error?, Status?
+local function run_cmd(cmd, stdin, ...)
   local fmt_cmd = function(cmd, ...)
-    local s = { "`", cmd, " " }
+    local s = { cmd }
     for _, arg in pairs(...) do
-      s[#s + 1] = ya.quote(arg == "\0" and "\\0" or arg)
-      s[#s + 1] = " "
+      s[#s + 1] = "'" .. arg .. "'"
     end
-    s[#s + 1] = "`"
-    return table.concat(s)
+    return "`" .. table.concat(s, " ") .. "`"
   end
+
+  -- ya.dbg("Running", fmt_cmd(cmd, ...))
+
+  local child, err = Command(cmd):arg(...):stdin(Command.PIPED):stdout(Command.PIPED):stderr(Command.PIPED):spawn()
+  if not child or err then
+    return nil, fail("Failed to spawn %s, error: %s", fmt_cmd(cmd, ...), err)
+  end
+
+  if stdin then
+    child:write_all(stdin)
+    child:flush() -- need to flush after write_all
+  end
+  local output, err = child:wait_with_output()
 
   if err then
     return nil, fail("Failed to run %s, error: %s", fmt_cmd(cmd, ...), err)
@@ -193,14 +213,22 @@ local function run_cmd(cmd, ...)
   if not output.status.success then
     ya.dbg("status is " .. output.status.code .. " for " .. fmt_cmd(cmd, ...))
   end
-  return output.stdout, nil
+  return output.stdout, nil, output.status
 end
 
 ---Run xmlstarlet
 ---@param ... any
----@return string?, Error?
+---@return string?, Error?, Status?
 local function xmlstarlet(...)
-  return run_cmd("xmlstarlet", ...)
+  return run_cmd("xmlstarlet", nil, ...)
+end
+
+---Run xmlstarlet
+---@param stdin string
+---@param ... any
+---@return string?, Error?, Status?
+local function xmlstarlet_stdin(stdin, ...)
+  return run_cmd("xmlstarlet", stdin, ...)
 end
 
 ---@return Error?
@@ -249,7 +277,6 @@ local function init_records()
     "-n",
     tostring(RECENTLY_USED),
   }
-
   if err or not stdout then
     return err
   end
@@ -291,11 +318,6 @@ end
 ---@param recents_url Url
 ---@return Url?
 local function recents_to_local(recents_url)
-  if recents_url.spec.scheme ~= "recents" then
-    ya.err(recents_url, "is not recents", recents_url.spec.scheme)
-    return nil
-  end
-
   -- find record
   local record = get_record_for_recents(Url(recents_url)) -- need to clone here
   if not record then
@@ -311,6 +333,121 @@ local function recents_to_local(recents_url)
 
   return record.uri
 end
+
+--- convert a regular url to a xpath
+---@param local_url Url
+---@return string?, Error?
+local function local_url_to_xpath(local_url)
+  local href = ("%s://%s"):format(LOCAL_URI_SCHEME, tostring(local_url.path))
+  local escaped, err = xmlstarlet { "esc", href }
+  if not escaped or err then
+    return nil, err
+  end
+  return escaped:match("(.*)\n$"), nil
+end
+
+---@param xpath string
+---@return string
+local function xpath_quoted(xpath) return ya.quote(xpath) end
+
+---@param local_url Url
+---@return Error?
+local function add_recent(local_url)
+  local href, err = local_url_to_xpath(local_url)
+  if not href or err then
+    return err
+  end
+
+  local timestamp_formated = iso_8601_timestamp(ya.time())
+  local mime = "text/plain"
+
+  -- TODO: locking
+
+  local bookmark_xpath = ("/xbel/bookmark[@href=%s]"):format(xpath_quoted(href))
+
+
+  -- need multiple calls here to work around https://martin7th.github.io/xmlstarlet-notes/#namespaces-insert-issue
+  local update_bookmark_cmd = {
+    "ed",
+
+    -- create bookmark entry if it's missing
+    "-s", ("/xbel[not(bookmark[@href=%s])]"):format(xpath_quoted(href)), "-t", "elem", "-n", "bookmark",
+
+    -- add href attr (if bookmark was missing)
+    "-s", "$prev", "-t", "attr", "-n", "href", "-v", href,
+
+    -- add added/modifed/visited attr (if bookmark was missing)
+    "-s", "$prev/..", "-t", "attr", "-n", "added", "-v", timestamp_formated,
+    "-s", "$prev/..", "-t", "attr", "-n", "modified",
+    "-s", "$prev/..", "-t", "attr", "-n", "visited",
+
+    -- update modified and visited
+    "-u", bookmark_xpath .. "/@modified", "-v", timestamp_formated,
+    "-u", bookmark_xpath .. "/@visited", "-v", timestamp_formated,
+
+    -- add bookmark:applications if missing
+    "-s", bookmark_xpath .. "[not(info)]", "-t", "elem", "-n", "info",
+    "-s", bookmark_xpath .. "/info[not(metadata)]", "-t", "elem", "-n", "metadata",
+    "-s", "$prev", "-t", "attr", "-n", "owner", "-v", "http://freedesktop.org",
+    "-s", "$prev/..", "-t", "elem", "-n", "mime:mime-type",
+    "-s", "$prev", "-t", "attr", "-n", "type", "-v", mime,
+
+    "-s", "$prev/..", "-t", "elem", "-n", "bookmark:applications",
+
+    tostring(RECENTLY_USED),
+  }
+
+
+  local add_app_cmd = {
+    "ed",
+
+    -- add bookmark entry for Yazi if it doesn't exist
+    "-s",
+    bookmark_xpath .. '/info/metadata/bookmark:applications[not(bookmark:application/@name="Yazi")]',
+    "-t", "elem", "-n", "bookmark:application",
+
+    -- add name, exec, modified and count
+    "-s", "$prev", "-t", "attr", "-n", "name", "-v", "Yazi",
+    "-s", "$prev/..", "-t", "attr", "-n", "exec", "-v", "'yazi %f'", -- yazi doesn't understand 'fill://' Uris, use path instead
+    "-s", "$prev/..", "-t", "attr", "-n", "modified",
+    "-s", "$prev/..", "-t", "attr", "-n", "count", "-v", "0",
+  }
+
+  local app_bookmark_xpath = bookmark_xpath ..
+      "/info/metadata/bookmark:applications/bookmark:application[@name='Yazi']"
+
+  local update_app_cmd = {
+    "ed",
+
+    "-u", app_bookmark_xpath .. "/@modified", "-v", timestamp_formated,
+    "-u", app_bookmark_xpath .. "/@count", "-x", ". + 1"
+  }
+
+  -- check if bookmark exists
+  local stdout, err, status = xmlstarlet(update_bookmark_cmd)
+  if err or not stdout or not status or not status.success then
+    return err or Err("failed to run update_bookmark")
+  end
+
+  local stdout, err, status = xmlstarlet_stdin(stdout, add_app_cmd)
+  if err or not stdout or not status or not status.success then
+    return err or Err("failed to run add_app")
+  end
+
+  local stdout, err, status = xmlstarlet_stdin(stdout, update_app_cmd)
+  if err or not stdout or not status or not status.success then
+    return err or Err("failed to run update_app")
+  end
+
+  -- there is not commonly used locking mechanism when accessing recently-used.xbel unfortunately (at least gtk does not use one)
+  -- best we can do is mimic what gtk does and use a write to tmp file + mv
+  -- TODO: might want to check if mtime changed between reading and now and bail / retry if it did
+  -- TODO: do this outside of lua to reduce chance of race with other recently used access (there is quite a bit of time between the write and rename syscalls calls here)
+  local tmp = Url(os.tmpname())
+  fs.write(tmp, stdout)
+  fs.rename(tmp, RECENTLY_USED)
+end
+
 -- VFS
 
 -- never called?
@@ -398,15 +535,19 @@ function M:RemoveFile(job)
   if not local_url then
     return nil
   end
-  local href = ("%s://%s"):format(LOCAL_URI_SCHEME, tostring(local_url.path))
-  -- ya.dbg("removing", ya.quote(href))
+
+  local href, err = local_url_to_xpath(local_url)
+  if not href or err then
+    return false, err
+  end
 
   -- remove from recently-used file
+  -- TODO: more robust file update
   local _, err = xmlstarlet {
     "ed",
     "--inplace",
     "--delete",
-    ("/xbel/bookmark[@href=%s]"):format(ya.quote(href)), -- TODO: proper xpath safe quoting
+    ("/xbel/bookmark[@href=%s]"):format(xpath_quoted(href)),
     tostring(RECENTLY_USED),
   }
   if err then
@@ -453,6 +594,57 @@ function M:setup(state, opts)
   state.records = {}
   state.records_init = false
   state.recently_used_mtime = 0
+end
+
+--- borrowed from https://github.com/yazi-rs/plugins/blob/4dc7f1b6458c2578f4494f10d468c68c1082214f/chmod.yazi/main.lua#L3-L12
+---@type fun(): Url[]
+local selected_or_hovered = ya.sync(function()
+  local tab, urls = cx.active, {}
+  for i, f in pairs(tab.selected) do
+    urls[i] = f.url
+  end
+  if #urls == 0 and tab.current.hovered then
+    urls[1] = tab.current.hovered.url
+  end
+  return urls
+end)
+
+function M:entry(job)
+  -- ya.dbg("args: ", job.args)
+
+  ---@type string?
+  local cmd = job.args[1]
+
+  if cmd == "modify" then
+    local update_state = false
+    for _, url in pairs(selected_or_hovered()) do
+      ---@type Url?
+      local local_url = nil
+      if url.spec.is_regular then
+        local_url = url
+      elseif url.spec.scheme == "recents" then
+        local record = get_record_for_recents(url)
+        local_url = record and record.uri
+      end
+
+      if local_url then
+        local err = add_recent(local_url)
+        if err then
+          return ya.err(err)
+        end
+        update_state = true
+      end
+    end
+
+    -- update state
+    if update_state then
+      set_state_records_init(false)
+    end
+
+    return
+  end
+
+  return fail("unexpected cmd: %s", cmd)
 end
 
 -- previewer and preloader borrowed from trash plugin (https://github.com/sxyazi/yazi/blob/5f901b886b14de1f17460b6e52e9de5d67f8aba9/yazi-plugin/preset/plugins/trash.lua)

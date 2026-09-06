@@ -1,10 +1,22 @@
 # recents.yazi
 
 Plugin for [Yazi](https://github.com/sxyazi/yazi) to show recently used files based on the [desktop-bookmark-spec](https://www.freedesktop.org/wiki/Specifications/desktop-bookmark-spec) (Linux only).
+The plugin accesses `recently-used.xbel`.
+
+## Features
+
+- Shows the recently used files with their `added` (btime), `modified` (mtime), and `visited` (atime) time stamps.
+- Adding entries to recently used
+- Deletion of entries from recently used
+
+## Not yet implemented
+
+- Some file operations in the recents VFS (open, copy)
+- Custom spotter showing recently used metadata
 
 ## Dependencies
 
-The plugin requires [xmlstarlet](https://xmlstarlet.github.io) to be available.
+- [xmlstarlet](https://xmlstarlet.github.io)
 
 ## Usage
 
@@ -54,12 +66,16 @@ desc = "Go to recently used"
 
 .
 
-## Features
+The selected or hovered file(s) can be added to the recents list (or updated) using `plugin recents modify`.
+For example
 
-- Shows the recently used files with their `added` (btime), `modified` (mtime), and `visited` (atime) time stamps.
-- Deletion of entries from recently used
+`keymap.toml`
 
-## Not yet implemented
+```toml
+[[mgr.prepend_keymap]]
+on = ["o"]
+run = ["pluging recents modify", "open"]
+desc = "Open selected files and add to recently used"
+```
 
-- Copying files
-- Adding entries to recently used
+will overwrite the default `open` command to also add the file to `recently-used.xbel`.
