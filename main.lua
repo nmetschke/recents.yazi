@@ -253,8 +253,7 @@ local function init_records()
   set_state_records_init(true)
 
   --- check if recently-used file exists
-  local ok, err = fs.access():read(true):open(RECENTLY_USED)
-  if not ok then
+  if not fs.cha(RECENTLY_USED) then
     return nil
   end
 
