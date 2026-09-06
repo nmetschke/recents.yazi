@@ -642,7 +642,10 @@ function M:entry(job)
       ---@type Url?
       local local_url = nil
       if url.spec.is_regular then
-        local_url = url
+        local c = fs.cha(url)
+        if c and not (c.is_dir or c.is_dir or c.is_block or c.is_char or c.is_sock or c.is_fifo) then -- no .is_file()
+          local_url = url
+        end
       elseif url.spec.scheme == "recents" then
         local record = get_record_for_recents(url)
         local_url = record and record.uri
