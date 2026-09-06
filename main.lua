@@ -21,10 +21,14 @@ function parse_iso8601(datetime)
   if not year or not month or not day or not hour or not minute or not seconds then
     return nil
   end
-  local timestamp = os.time { year = year, month = month,
-    day = day, hour = hour, min = minute, sec = seconds }
+
+  -- os.time() always return local time, subtract local unix time to get UTC
+  local unix_time = os.time { year = 1970, month = 1, day = 1, hour = 0, isdst = false }
+
+  local timestamp = os.time { year = year, month = month, day = day, hour = hour, min = minute, sec = seconds, isdst = false }
   local subsec = subsecond and tonumber(subsecond) or 0.0
-  return timestamp + 1. / subsec
+
+  return timestamp + 1. / subsec - unix_time
 end
 
 ---format timestamp as iso 8601
