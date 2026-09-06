@@ -18,6 +18,14 @@ Recently used files are read and written to / from `~/.local/share/recently-used
 
 Requires [xmlstarlet](https://xmlstarlet.github.io) to be available.
 
+## Installation
+
+With the [Yazi Package Manager](https://yazi-rs.github.io/docs/cli/#pm)
+
+```bash
+ya pkg add nmetschke/recents
+```
+
 ## Usage
 
 Add the following to
@@ -51,8 +59,6 @@ run = "recents"
 
 ```
 
-
-
 The recently used files can be opened using `yazi recents://` or with a keybind
 
 `keymap.toml`
@@ -63,7 +69,6 @@ on = ["g", "r"]
 run = "cd recents://"
 desc = "Go to recently used"
 ```
-
 
 The selected or hovered file(s) can be added to the recents list (or updated) using `plugin recents modify`.
 For example
