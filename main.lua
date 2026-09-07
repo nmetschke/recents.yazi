@@ -21,6 +21,9 @@ local RECENTLY_USED_TEMPLATE = [[
 ></xbel>
 ]]
 
+local DEFAULT_DIR_MODE = tonumber("40700", 8)
+local DEFAULT_FILE_MODE = tonumber("100444", 8)
+
 ---parse (subset of) iso 8601 datetime
 ---@param datetime string
 ---@return number?
@@ -49,13 +52,6 @@ local function iso_8601_timestamp(timestamp)
   return os.date("!%Y-%m-%dT%T", epochSeconds) .. "." .. ms .. "Z"
 end
 
----get record key for local url
----@param url Url
----@return string
-local function record_key(url)
-  return ya.hash(tostring(url.path))
-end
-
 ---get record key from recents url
 ---@param recents_url Url
 ---@return string?
@@ -64,7 +60,12 @@ local function recents_record_key(recents_url)
     ya.err(recents_url, "is not recents", recents_url.spec.scheme)
     return nil
   end
-  return recents_url.parent and recents_url.parent.name
+  if not recents_url.is_absolute then
+    ya.err(recents_url, "is not absolute")
+    return nil
+  end
+
+  return tostring(recents_url.path)
 end
 
 -- convert local file url to recents url of the form "recents:///<path hash>/<file name>"
@@ -75,6 +76,10 @@ local function fs_to_recents_url(url)
     ya.err(url, "is not regular")
     return nil
   end
+  if not url.is_absolute then
+    ya.err(url, "is not absolute")
+    return nil
+  end
 
   local name = url.name
   if not name then
@@ -82,7 +87,7 @@ local function fs_to_recents_url(url)
     return nil
   end
 
-  return RECENT_URL_ROOT:join(record_key(url)):join(name)
+  return RECENT_URL_ROOT:join(url.path)
 end
 
 -- TODO: pares applications and show in custom spotter
@@ -98,7 +103,7 @@ end
 local function rec_to_file(record)
   local backing = record.uri
   local cha = Cha {
-    mode = tonumber("100400", 8),
+    mode = DEFAULT_FILE_MODE,
     btime = record.added,
     atime = record.visited,
     mtime = record.modified,
@@ -319,7 +324,7 @@ local function init_records()
 
       i = i + 1
     end
-    records[record_key(record.uri)] = record
+    records[tostring(record.uri.path)] = record
   end
   set_state_records(records)
 
@@ -334,12 +339,6 @@ local function recents_to_local(recents_url)
   local record = get_record_for_recents(Url(recents_url)) -- need to clone here
   if not record then
     ya.dbg("no record for", recents_url)
-    return nil
-  end
-
-  -- in case some other file is requested (e.g., recents///<path hash>/.git)
-  if recents_url.path.name ~= record.uri.name then
-    ya.dbg("record does not match filename", recents_url.path.name, record.uri.name)
     return nil
   end
 
@@ -503,7 +502,7 @@ function M:Canonicalize(job) return self:Absolute(job) end
 
 function M:Casefold(job) return job.url end
 
-function M:SymlinkMetadata(_) return Cha { mode = tonumber("100400", 8) } end
+function M:SymlinkMetadata(_) return Cha { mode = DEFAULT_FILE_MODE } end
 
 function M:Metadata(job) return self:SymlinkMetadata(job) end
 
@@ -519,8 +518,14 @@ function M:ReadDir(job)
     return {}
   end
 
+  if job.url.parent then
+    ya.dbg("ignoring reading recents subdir", job.url)
+    return {}
+  end
+
   init_records()
 
+  -- reading root, return all records
   local dir_entries = {}
   for _, record in pairs(get_all_state_records()) do
     local file = rec_to_file(record)
@@ -533,27 +538,34 @@ function M:ReadDir(job)
 end
 
 function M:Revalidate(job)
-  -- check if recently used file was updated
-  local cha = fs.cha(RECENTLY_USED)
-  if cha and cha.mtime then
-    if cha.mtime == get_state_recently_used_mtime() then
-      -- no need to update
-      return nil
+  local url = job.file.url
+  -- ya.dbg("revalidate ", url)
+
+  if not url.parent then
+    -- only check recently-used file when revalidating root
+
+    -- check if recently used file was updated
+    local cha = fs.cha(RECENTLY_USED)
+    if cha and cha.mtime then
+      if cha.mtime == get_state_recently_used_mtime() then
+        -- no need to update
+        return nil
+      end
+      set_state_recently_used_mtime(cha.mtime)
     end
-    set_state_recently_used_mtime(cha.mtime)
-  end
 
-  -- need to update
-  set_state_records_init(false)
+    -- need to update
+    set_state_records_init(false)
 
-  -- check if root of fs
-  if job.file.url.name then
-    return nil, fail("unexpected Revalidate url %s", job.file.url)
+    return File {
+      cha = Cha { mode = DEFAULT_DIR_MODE },
+      url = url,
+    }
   end
 
   return File {
-    cha = Cha { mode = tonumber("40700", 8) },
-    url = job.file.url,
+    cha = Cha { mode = DEFAULT_FILE_MODE },
+    url = url,
   }
 end
 
