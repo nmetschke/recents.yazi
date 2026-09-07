@@ -502,9 +502,14 @@ function M:Canonicalize(job) return self:Absolute(job) end
 
 function M:Casefold(job) return job.url end
 
-function M:SymlinkMetadata(_) return Cha { mode = DEFAULT_FILE_MODE } end
+local function metadata(url, follow)
+  local local_url = recents_to_local(url)
+  return local_url and fs.cha(local_url, follow) or Cha { mode = DEFAULT_FILE_MODE }
+end
 
-function M:Metadata(job) return self:SymlinkMetadata(job) end
+function M:SymlinkMetadata(job) return metadata(job.url, false) end
+
+function M:Metadata(job) return metadata(job.url, true) end
 
 function M:File(job)
   init_records()
@@ -615,6 +620,54 @@ end
 
 -- called after RemoveFile, ignore
 function M:RemoveDir(_) return true, nil end
+
+function M:Open(job)
+  local demand = job.demand
+
+  -- only allow reading
+  if demand.append or demand.create or demand.create_new or demand.truncate or demand.write then
+    return nil, fail("Recents VFS is read-only, demand contains write")
+  end
+  if not demand.read then
+    return nil, fail("No read in demand")
+  end
+
+  -- ensure url is valid
+  local local_url = recents_to_local(job.url)
+  if not local_url then
+    return nil, fail("Invalid recents url: %s", tostring(job.url))
+  end
+
+
+  -- ensure file still exists
+  if not fs.cha(local_url) then
+    return nil, fail("Recently used file does not exists anymore: %s", tostring(local_url))
+  end
+
+  return 0, nil
+end
+
+function M:Read(job)
+  local local_url = recents_to_local(job.url)
+  if not local_url then
+    return nil, fail("Invalid recents url: %s", tostring(job.url))
+  end
+
+  local file, open_err = io.open(tostring(local_url), "rb")
+  if not file then
+    return nil, fail(open_err or "cannot open for read")
+  end
+
+  local _, seek_err = file:seek("set", job.offset)
+  if seek_err then
+    file:close()
+    return nil, fail(seek_err)
+  end
+
+  local bytes, read_err = file:read(job.len)
+  file:close()
+  return bytes or "", read_err and fail(read_err)
+end
 
 function M:provide(job)
   -- ya.dbg("request", job)

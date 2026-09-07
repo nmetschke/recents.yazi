@@ -6,12 +6,11 @@ Recently used files are read and written to / from `~/.local/share/recently-used
 ## Features
 
 - Shows the recently used files with their `added` (btime), `modified` (mtime), and `visited` (atime) time stamps with a VFS.
-- Adding entries to recently used
-- Deletion of entries from recently used
+- Adding/Deleting/Updating entries in `recently-used.xbel`
+- Copying of files from the VFS
 
 ## Not yet implemented
 
-- Copy files from the recents VFS
 - Custom spotter showing recently used metadata
 
 ## Dependencies
