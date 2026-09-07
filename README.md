@@ -11,7 +11,7 @@ Recently used files are read and written to / from `~/.local/share/recently-used
 
 ## Not yet implemented
 
-- Some file operations in the recents VFS (open, copy)
+- Copy files from the recents VFS
 - Custom spotter showing recently used metadata
 
 ## Dependencies
