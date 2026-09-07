@@ -37,7 +37,7 @@ function parse_iso8601(datetime)
   local timestamp = os.time { year = year, month = month, day = day, hour = hour, min = minute, sec = seconds, isdst = false }
   local subsec = subsecond and tonumber(subsecond) or 0.0
 
-  return timestamp + 1. / subsec - unix_time
+  return timestamp + subsec / 1000. - unix_time
 end
 
 ---format timestamp as iso 8601
