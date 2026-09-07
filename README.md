@@ -33,8 +33,8 @@ Add the following to
 `vfs.toml`
 
 ```toml
-[recents.""]
-kind = "scope"
+[recents."*"]
+kind = "hub"
 run = "recents"
 ```
 
@@ -59,14 +59,14 @@ run = "recents"
 
 ```
 
-The recently used files can be opened using `yazi recents://` or with a keybind
+The recently used files can be opened using `yazi recents:///@/` or by calling the plugin `plugin recents` with a keybind
 
 `keymap.toml`
 
 ```toml
 [[mgr.prepend_keymap]]
 on = ["g", "r"]
-run = "cd recents://"
+run = "plugin recents"
 desc = "Go to recently used"
 ```
 

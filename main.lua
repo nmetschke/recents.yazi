@@ -4,7 +4,7 @@
 local M = {}
 
 -- root of recents vfs
-local RECENT_URL_ROOT = Url("recents:///")
+local RECENT_URL_ROOT = Url("recents:///@/")
 
 local XDG_DATA_HOME = os.getenv("XDG_DATA_HOME")
 local DATA_HOME = XDG_DATA_HOME and Path.os(XDG_DATA_HOME) or Path.os(os.getenv("HOME")):join(".local/share")
@@ -60,15 +60,17 @@ local function recents_record_key(recents_url)
     ya.err(recents_url, "is not recents", recents_url.spec.scheme)
     return nil
   end
-  if not recents_url.is_absolute then
-    ya.err(recents_url, "is not absolute")
+
+  local domain = recents_url.spec.domain
+  if domain == "" then
+    ya.err(recents_url, "has no domain")
     return nil
   end
 
-  return tostring(recents_url.path)
+  return domain
 end
 
--- convert local file url to recents url of the form "recents:///<path hash>/<file name>"
+-- convert local file url to recents url of the form "recents:///<path escaped>/@/<file name>"
 ---@param url Url
 ---@return Url?
 local function fs_to_recents_url(url)
@@ -87,7 +89,7 @@ local function fs_to_recents_url(url)
     return nil
   end
 
-  return RECENT_URL_ROOT:join(url.path)
+  return RECENT_URL_ROOT:join(name):into_domain(tostring(url.path))
 end
 
 -- TODO: pares applications and show in custom spotter
@@ -476,8 +478,6 @@ end
 
 -- VFS
 
--- never called?
--- function M:Capabilities() return { symlink = false, hard_link = false, trash = false, copy_progressive = false }, nil end
 
 -- borrowed from https://github.com/sxyazi/yazi/blob/5f901b886b14de1f17460b6e52e9de5d67f8aba9/yazi-plugin/preset/plugins/trash.lua#L49-L64
 function M:Absolute(job)
@@ -564,7 +564,7 @@ function M:Revalidate(job)
   end
 
   return File {
-    cha = Cha { mode = DEFAULT_FILE_MODE },
+    cha = Cha { mode = DEFAULT_DIR_MODE },
     url = url,
   }
 end
@@ -647,6 +647,11 @@ function M:entry(job)
 
   ---@type string?
   local cmd = job.args[1]
+
+  if not cmd then
+    ya.emit("cd", { RECENT_URL_ROOT })
+    return
+  end
 
   if cmd == "modify" then
     local update_state = false
