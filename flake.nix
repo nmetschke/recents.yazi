@@ -19,11 +19,22 @@
       packages = forEachSupportedSystem (pkgs: {
         default = mkYaziPlugin pkgs {
           pname = "recents.yazi";
-          version = "0-unstable-2026-09-05";
+          version = "0-unstable-2026-09-10";
 
-          src = pkgs.lib.cleanSource ./.;
+          src = pkgs.lib.fileset.toSource {
+            root = ./.;
+            fileset = pkgs.lib.fileset.unions [
+              ./main.lua
+              ./README.md
+              ./LICENSE
+            ];
+          };
 
-          buildInputs = [ pkgs.xmlstarlet ];
+          postPatch = ''
+            substituteInPlace main.lua --replace-fail \
+              'local XML_STARLET_PATH = "xmlstarlet"' \
+              'local XML_STARLET_PATH = "${pkgs.lib.getExe pkgs.xmlstarlet}"'
+          '';
 
           meta = {
             description = "Recents plugin for Yazi based on the desktop-bookmark-spec";
@@ -38,8 +49,10 @@
       });
       devShells = forEachSupportedSystem (pkgs: {
         default = pkgs.mkShellNoCC {
-          inputsFrom = [ self.packages.${pkgs.stdenv.hostPlatform.system}.default ];
-          packages = [ pkgs.yazi ];
+          packages = with pkgs; [
+            yazi
+            xmlstarlet
+          ];
 
           shellHook = ''
             export YAZI_LOG=debug

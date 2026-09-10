@@ -11,6 +11,7 @@ local DATA_HOME = XDG_DATA_HOME and Path.os(XDG_DATA_HOME) or Path.os(os.getenv(
 
 -- path to recently-used.xbel (~/.local/share/recently-used.xbel by default)
 local RECENTLY_USED = Url(DATA_HOME:join("recently-used.xbel"))
+local XML_STARLET_PATH = "xmlstarlet"
 
 -- empty recently-used.xbel file
 local RECENTLY_USED_TEMPLATE = [[
@@ -240,7 +241,7 @@ end
 ---@param ... any
 ---@return string?, Error?, Status?
 local function xmlstarlet(...)
-  return run_cmd("xmlstarlet", nil, ...)
+  return run_cmd(XML_STARLET_PATH, nil, ...)
 end
 
 ---Run xmlstarlet
@@ -248,7 +249,7 @@ end
 ---@param ... any
 ---@return string?, Error?, Status?
 local function xmlstarlet_stdin(stdin, ...)
-  return run_cmd("xmlstarlet", stdin, ...)
+  return run_cmd(XML_STARLET_PATH, stdin, ...)
 end
 
 ---@return Error?
