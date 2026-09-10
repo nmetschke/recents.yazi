@@ -19,10 +19,21 @@ Requires [xmlstarlet](https://xmlstarlet.github.io) to be available.
 
 ## Installation
 
-With the [Yazi Package Manager](https://yazi-rs.github.io/docs/cli/#pm)
+### [Yazi Package Manager](https://yazi-rs.github.io/docs/cli/#pm)
 
 ```bash
 ya pkg add nmetschke/recents
+```
+
+### Nix flakes
+
+```nix
+{
+  inputs.recentsYazi = {
+    url = "github:nmetschke/recents.yazi";
+    inputs.nixpkgs.follows = "nixpkgs";
+  };
+}
 ```
 
 ## Usage
@@ -77,8 +88,68 @@ For example
 ```toml
 [[mgr.prepend_keymap]]
 on = ["o"]
-run = ["pluging recents modify", "open"]
+run = ["plugin recents modify", "open"]
 desc = "Open selected files and add to recently used"
 ```
 
 will change the default `open` keybind to also add the file to `recently-used.xbel`.
+
+## Usage with Nix Home Manager
+
+```nix
+{ pkgs, inputs, ... }:
+{
+  programs.yazi = {
+    enable = true;
+    plugins = {
+      recents = inputs.recentsYazi.packages.${pkgs.stdenv.hostPlatform.system}.default;
+    };
+    vfs.recents."*" = {
+      kind = "hub";
+      run = "recents";
+    };
+    settings.plugin = {
+      prepend_fetchers = [
+        {
+          url = "recents://*";
+          run = "recents";
+          prio = "high";
+          group = "mime";
+        }
+      ];
+      prepend_preloaders = [
+        {
+          mime = "recents/**";
+          run = "recents";
+        }
+      ];
+      prepend_previewers = [
+        {
+          mime = "recents/**";
+          run = "recents";
+        }
+      ];
+    };
+    keymap = {
+      mgr.prepend_keymap = [
+        {
+          on = [
+            "g"
+            "r"
+          ];
+          run = "plugin recents";
+          desc = "Go to recently used";
+        }
+        {
+          on = "o";
+          run = [
+            "plugin recents modify"
+            "open"
+          ];
+          desc = "Open selected files and add to recently used";
+        }
+      ];
+    };
+  };
+}
+```
