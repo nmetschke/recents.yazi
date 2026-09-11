@@ -377,7 +377,7 @@ local function add_recent(local_url)
   -- query mime
   local next = require("mime.local"):fetch({
     files = { File {
-      cha = fs.cha(local_url),
+      cha = fs.cha(local_url) or Cha { mode = DEFAULT_FILE_MODE },
       url = local_url
     } }
   })
