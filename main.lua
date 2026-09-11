@@ -607,6 +607,8 @@ function M:RemoveFile(job)
     ya.err("couldn't find key for", job.url)
   end
 
+  ya.emit("refresh", {})
+
   return true, nil
 end
 
@@ -734,6 +736,7 @@ function M:entry(job)
     -- update state
     if update_state then
       set_state_records_init(false)
+      ya.emit("refresh", {})
     end
 
     return
