@@ -2,6 +2,7 @@
 
 Plugin for [Yazi](https://github.com/sxyazi/yazi) to show recently used files based on the [desktop-bookmark-spec](https://www.freedesktop.org/wiki/Specifications/desktop-bookmark-spec) (Linux only).
 Recently used files are read and written to / from `~/.local/share/recently-used.xbel`.
+Suports Yazi 26.8.15 or later.
 
 ## Features
 
@@ -9,31 +10,14 @@ Recently used files are read and written to / from `~/.local/share/recently-used
 - Adding/Deleting/Updating entries in `recently-used.xbel`
 - Copying of files from the VFS
 
-## Not yet implemented
-
-- Custom spotter showing recently used metadata
-
 ## Dependencies
 
 Requires [xmlstarlet](https://xmlstarlet.github.io) to be available.
 
-## Installation
-
-### [Yazi Package Manager](https://yazi-rs.github.io/docs/cli/#pm)
+## Installation with [Yazi Package Manager](https://yazi-rs.github.io/docs/cli/#pm)
 
 ```bash
 ya pkg add nmetschke/recents
-```
-
-### Nix flakes
-
-```nix
-{
-  inputs.recentsYazi = {
-    url = "github:nmetschke/recents.yazi";
-    inputs.nixpkgs.follows = "nixpkgs";
-  };
-}
 ```
 
 ## Usage
@@ -69,14 +53,15 @@ run = "recents"
 
 ```
 
-The recently used files can be opened using `yazi recents:///@/` or by calling the plugin `plugin recents` with a keybind
+The recently used files can be opened using `yazi recents:///@/` or by calling the plugin `plugin recents` with a keybind.
+`"sort mtime --reverse=yes", "linemode mtime"` can be added to sort by modification time.
 
 `keymap.toml`
 
 ```toml
 [[mgr.prepend_keymap]]
 on = ["g", "r"]
-run = "plugin recents"
+run = ["plugin recents", "sort mtime --reverse=yes", "linemode mtime"]
 desc = "Go to recently used"
 ```
 
@@ -94,7 +79,20 @@ desc = "Open selected files and add to recently used"
 
 will change the default `open` keybind to also add the file to `recently-used.xbel`.
 
-## Usage with Nix Home Manager
+## Usage with Nix flakes + Home Manager
+
+Add the input to `flake.nix`
+
+```nix
+{
+  inputs.recentsYazi = {
+    url = "github:nmetschke/recents.yazi";
+    inputs.nixpkgs.follows = "nixpkgs";
+  };
+}
+```
+
+and configure Yazi
 
 ```nix
 { pkgs, inputs, ... }:
@@ -137,7 +135,11 @@ will change the default `open` keybind to also add the file to `recently-used.xb
             "g"
             "r"
           ];
-          run = "plugin recents";
+          run = [
+            "plugin recents"
+            "sort mtime --reverse=yes"
+            "linemode mtime"
+          ];
           desc = "Go to recently used";
         }
         {
