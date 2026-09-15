@@ -6,11 +6,12 @@ local M = {}
 -- root of recents vfs
 local RECENT_URL_ROOT = Url("recents:///@/")
 
+-- path to recently-used.xbel (~/.local/share/recently-used.xbel by default)
 local XDG_DATA_HOME = os.getenv("XDG_DATA_HOME")
 local DATA_HOME = XDG_DATA_HOME and Path.os(XDG_DATA_HOME) or Path.os(os.getenv("HOME")):join(".local/share")
+local RECENTLY_USED_ENV = os.getenv("YAZI_RECENTLY_USED")
+local RECENTLY_USED = RECENTLY_USED_ENV and Url(RECENTLY_USED_ENV) or Url(DATA_HOME:join("recently-used.xbel"))
 
--- path to recently-used.xbel (~/.local/share/recently-used.xbel by default)
-local RECENTLY_USED = Url(DATA_HOME:join("recently-used.xbel"))
 local XML_STARLET_PATH = "xmlstarlet"
 
 -- empty recently-used.xbel file
@@ -698,6 +699,55 @@ local selected_or_hovered = ya.sync(function()
   return urls
 end)
 
+local function run_unit_tests()
+  local function assert_eq(a, b)
+    if a ~= b then
+      fail("assertion failed %s != %s", tostring(a), tostring(b))
+      assert(false)
+    end
+  end
+
+  -- iso parsing / formatting
+  assert_eq(parse_iso8601("1970-01-01T00:00:00.0Z"), 0)
+  assert_eq(parse_iso8601("2026-09-06T10:19:25.0Z"), 1788689965)
+  assert_eq(iso_8601_timestamp(0), "1970-01-01T00:00:00.0Z")
+  assert_eq(iso_8601_timestamp(1788689965), "2026-09-06T10:19:25.0Z")
+
+  -- record key conversion / lookup
+  assert_eq(tostring(recents_record_key(Url("recents://%2Ffoo%2Fbar/@/bar"))), "/foo/bar")
+  assert_eq(fs_to_recents_url(Url("/foo/bar.txt")), Url("recents://%2Ffoo%2Fbar.txt/@/bar.txt"))
+
+  -- to file conversion
+  local f1 = rec_to_file({ uri = Url("/foo/bar.txt"), modified = 2 })
+  local f2 = File {
+    cha = Cha {
+      mode = DEFAULT_FILE_MODE,
+      mtime = 2,
+    },
+    url = Url("recents://%2Ffoo%2Fbar.txt/@/bar.txt"),
+    backing = Path.os("/foo/bar.txt"),
+  }
+  assert_eq(f1.cha.mode, f2.cha.mode)
+  assert_eq(f1.cha.mtime, f2.cha.mtime)
+  assert_eq(f1.url, f2.url)
+  assert_eq(f1.backing, f2.backing)
+
+
+  -- test xmlstarlet
+  local stdout, err, status = xmlstarlet { "--version" }
+  assert(stdout)
+  assert(not err)
+  assert(status and status.success)
+
+  -- test quoting / escaping
+  assert_eq(local_url_to_xpath(Url("/foo/bar.txt")), "file:///foo/bar.txt")
+  assert_eq(xpath_quoted("file:///foo/bar.txt"), "'file:///foo/bar.txt'")
+
+  -- TODO: test recently used parsing / editing with mock file
+
+  ya.dbg("all tests passed")
+end
+
 function M:entry(job)
   -- ya.dbg("args: ", job.args)
 
@@ -741,6 +791,11 @@ function M:entry(job)
 
     return
   end
+
+  if cmd == "unit_tests" then
+    return run_unit_tests()
+  end
+
 
   return fail("unexpected cmd: %s", cmd)
 end

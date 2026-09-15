@@ -1,0 +1,114 @@
+name: Test plugin against latest stable and main Yazi
+
+on:
+  push:
+  # pull_request:
+
+  schedule:
+    - cron: "0 6 * * 6" # Saturday at 6am
+
+  workflow_dispatch:
+
+concurrency:
+  group: ${{github.workflow}}-${{github.ref}}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Yazi ${{ matrix.yazi }}
+    runs-on: ubuntu-26.04 # tmux in latest is too old for latest yazi
+
+    strategy:
+      fail-fast: false
+      matrix:
+        yazi:
+          - release
+          # - main
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Get latest Yazi commit
+        id: yazi-commit
+        if: matrix.yazi == 'main'
+        run: |
+          echo "commit=$(git ls-remote https://github.com/sxyazi/yazi.git refs/heads/main | cut -f1)" >> "$GITHUB_OUTPUT"
+    
+      - name: Restore cargo cache
+        uses: actions/cache/restore@v6
+        id: cache-cargo-restore
+        if: matrix.yazi == 'main'
+        with:
+          path: &cache_paths |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            ~/.cargo/target/yazi
+          key: cargo-install-yazi-${{ runner.os }}-${{ runner.arch }}-${{ steps.yazi-commit.outputs.commit }}
+        
+      - name: Install Yazi release
+        if: matrix.yazi != 'main'
+        run: |
+          echo "Installing latest binary Yazi release"
+            TARGET=yazi-x86_64-unknown-linux-gnu
+            mkdir -p ~/.local/bin
+            curl -fsSL \
+              "https://github.com/sxyazi/yazi/releases/latest/download/$TARGET.zip" \
+              -o /tmp/yazi.zip
+            unzip /tmp/yazi.zip -d /tmp/ && rm /tmp/yazi.zip
+            install "/tmp/$TARGET/yazi" "/tmp/$TARGET/ya" ~/.local/bin && rm -rf "/tmp/$TARGET"
+
+      - name: Install Yazi main
+        if: matrix.yazi == 'main' && steps.cache-cargo-restore.outputs.cache-hit != 'true'
+        run: |
+          echo "Installing latest Yazi from git"
+          export CARGO_TARGET_DIR="$HOME/.cargo/target/yazi"
+          mkdir -p ~/.cargo/target
+          cargo install --force \
+            --git https://github.com/sxyazi/yazi.git \
+            --branch main \
+            yazi-build
+          ls ~/.cargo/target
+          ls ~/.cargo/target/yazi
+
+      - name: Save cargo cache
+        uses: actions/cache/save@v6
+        if: always() && matrix.yazi == 'main' && steps.cache-cargo-restore.outputs.cache-hit != 'true'
+        with:
+          path: *cache_paths
+          key: ${{ steps.cache-cargo-restore.outputs.cache-primary-key }}
+
+      - name: Install runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xmlstarlet tmux
+          
+      - name: Check versions
+        run: |
+          cargo --version
+          yazi --version
+          ya --version
+          tmux -V
+          xmlstarlet --version
+
+      - name: Install recents.yazi plugin
+        run: |
+          mkdir -p ~/.config/yazi/plugins
+          ln -s "$PWD" ~/.config/yazi/plugins/recents.yazi
+
+          ls -alh ~/.config/yazi/plugins
+          ls ~/.config/yazi/plugins/recents.yazi
+
+          # configure plugin with instructions from README
+          function find_toml_content() {
+            sed -n '/'"$1"'/,/```$/p' README.md | sed -n '/```toml/,/```$/{//!p}'
+          }
+          find_toml_content "vfs.toml" > ~/.config/yazi/vfs.toml
+          find_toml_content "yazi.toml" > ~/.config/yazi/yazi.toml
+
+      - name: Run tests
+        run: |
+          chmod +x ./test.sh
+          ./test.sh
