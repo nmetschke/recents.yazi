@@ -1,4 +1,4 @@
-name: Test plugin against latest stable and main Yazi
+name: Test plugin
 
 on:
   push:
@@ -7,8 +7,6 @@ on:
   schedule:
     - cron: "0 6 * * 6" # Saturday at 6am
 
-  workflow_dispatch:
-
 concurrency:
   group: ${{github.workflow}}-${{github.ref}}
   cancel-in-progress: true
@@ -16,25 +14,44 @@ concurrency:
 jobs:
   test:
     name: Yazi ${{ matrix.yazi }}
-    runs-on: ubuntu-26.04 # tmux in latest is too old for latest yazi
+    runs-on: ubuntu-26.04 # tmux in ubuntu-latest is too old for latest yazi, use next
 
     strategy:
       fail-fast: false
       matrix:
         yazi:
-          - release
+          - release-latest
+          - release-v26.9.1
+          - release-v26.8.15
+          # - release-nightly
           # - main
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
 
+      - name: Install binary Yazi ${{ matrix.yazi }}
+        if: matrix.yazi != 'main'
+        run: |
+          echo "Installing binary Yazi ${{ matrix.yazi }}"
+          TARGET="yazi-x86_64-unknown-linux-gnu"
+          RELEASE="${{ matrix.yazi }}"
+          TAG="${RELEASE/release-/}"
+          URL="https://github.com/sxyazi/yazi/releases/download/$TAG/$TARGET.zip"
+          if [[ $TAG == "latest" ]]; then
+            URL="https://github.com/sxyazi/yazi/releases/latest/download/$TARGET.zip"
+          fi
+          YAZI_ZIP="$RUNNER_TEMP/yazi.zip"
+          curl -fsSL "$URL" -o "$YAZI_ZIP"
+          unzip -q "$YAZI_ZIP" -d "$RUNNER_TEMP" && rm "$YAZI_ZIP"
+          install -D -t ~/.local/bin "$RUNNER_TEMP/$TARGET"/{yazi,ya} && rm -rf "$RUNNER_TEMP/$TARGET"
+
       - name: Get latest Yazi commit
         id: yazi-commit
         if: matrix.yazi == 'main'
         run: |
           echo "commit=$(git ls-remote https://github.com/sxyazi/yazi.git refs/heads/main | cut -f1)" >> "$GITHUB_OUTPUT"
-    
+
       - name: Restore cargo cache
         uses: actions/cache/restore@v6
         id: cache-cargo-restore
@@ -48,18 +65,6 @@ jobs:
             ~/.cargo/target/yazi
           key: cargo-install-yazi-${{ runner.os }}-${{ runner.arch }}-${{ steps.yazi-commit.outputs.commit }}
         
-      - name: Install Yazi release
-        if: matrix.yazi != 'main'
-        run: |
-          echo "Installing latest binary Yazi release"
-            TARGET=yazi-x86_64-unknown-linux-gnu
-            mkdir -p ~/.local/bin
-            curl -fsSL \
-              "https://github.com/sxyazi/yazi/releases/latest/download/$TARGET.zip" \
-              -o /tmp/yazi.zip
-            unzip /tmp/yazi.zip -d /tmp/ && rm /tmp/yazi.zip
-            install "/tmp/$TARGET/yazi" "/tmp/$TARGET/ya" ~/.local/bin && rm -rf "/tmp/$TARGET"
-
       - name: Install Yazi main
         if: matrix.yazi == 'main' && steps.cache-cargo-restore.outputs.cache-hit != 'true'
         run: |
@@ -70,8 +75,6 @@ jobs:
             --git https://github.com/sxyazi/yazi.git \
             --branch main \
             yazi-build
-          ls ~/.cargo/target
-          ls ~/.cargo/target/yazi
 
       - name: Save cargo cache
         uses: actions/cache/save@v6
