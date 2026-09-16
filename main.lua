@@ -74,8 +74,9 @@ end
 
 -- convert local file url to recents url of the form "recents:///<path escaped>/@/<file name>"
 ---@param url Url
+---@param name string?
 ---@return Url?
-local function fs_to_recents_url(url)
+local function fs_to_recents_url(url, name)
   if not url.spec.is_regular then
     ya.err(url, "is not regular")
     return nil
@@ -85,7 +86,7 @@ local function fs_to_recents_url(url)
     return nil
   end
 
-  local name = url.name
+  local name = name or url.name
   if not name then
     ya.err("no name for", url)
     return nil
@@ -100,6 +101,7 @@ end
 ---@field visited number?
 ---@field modified number?
 ---@field added number?
+---@field title string?
 
 --- Record to File
 ---@param record Record
@@ -115,8 +117,20 @@ local function rec_to_file(record)
   }
   return File {
     cha = cha,
-    url = fs_to_recents_url(backing),
+    url = fs_to_recents_url(backing, record.title),
     backing = backing.path,
+  }
+end
+
+--- @param rec Record
+--- @return Record
+local function clone_record(rec)
+  return {
+    uri = Url(rec.uri), -- clone
+    visited = rec.visited,
+    added = rec.added,
+    modified = rec.modified,
+    title = rec.title
   }
 end
 
@@ -126,12 +140,7 @@ local get_all_state_records = ya.sync(function(state)
   ---@type table<string, Record>
   local records = {}
   for k, v in pairs(state.records or {}) do
-    records[k] = {
-      uri = Url(v.uri), -- clone
-      visited = v.visited,
-      added = v.added,
-      modified = v.modified
-    }
+    records[k] = clone_record(v)
   end
   return records
 end)
@@ -151,12 +160,7 @@ local get_record_for_recents = ya.sync(function(state, recents_url)
   if not v then
     return nil
   end
-  return {
-    uri = Url(v.uri),
-    visited = v.visited,
-    added = v.added,
-    modified = v.modified
-  }
+  return clone_record(v)
 end)
 ---@type fun(record_key: string)
 local remove_state_record = ya.sync(function(state, record_key)
@@ -183,9 +187,6 @@ end)
 
 -- seperator for xmlstarlet output
 local FIELD_SPERATOR = "|"
-
--- url scheme in recently-used
-local LOCAL_URI_SCHEME = "file"
 
 ---Show error msg
 ---@param content string
@@ -269,33 +270,22 @@ local function init_records()
   -- query recent files
   local stdout, err = xmlstarlet {
     "sel",
-    "--text",
-    "--template",
-    "--match",
-    ("/xbel/bookmark[starts-with(@href, '%s://')]"):format(LOCAL_URI_SCHEME),
+
+    -- query bookmark list
+    "--text", "--template", "--match",
+    "/xbel/bookmark[starts-with(@href, 'file://')]",
 
     -- sort by visited (ISO-8601 timestamps)
-    "--sort",
-    "D:T:-",
-    "@visited",
+    "--sort", "D:T:-", "@visited",
 
     -- print fields
-    "-v",
-    "@href",
-    "-o",
-    FIELD_SPERATOR,
-    "-v",
-    "@visited",
-    "-o",
-    FIELD_SPERATOR,
-    "-v",
-    "@modified",
-    "-o",
-    FIELD_SPERATOR,
-    "-v",
-    "@added",
-
+    "-v", "@href", "-o", FIELD_SPERATOR,
+    "-v", "@visited", "-o", FIELD_SPERATOR,
+    "-v", "@modified", "-o", FIELD_SPERATOR,
+    "-v", "@added", "-o", FIELD_SPERATOR,
+    "-v", "title",
     "-n",
+
     tostring(RECENTLY_USED),
   }
   if err or not stdout then
@@ -307,7 +297,8 @@ local function init_records()
     "uri",
     "visited",
     "modified",
-    "added"
+    "added",
+    "title"
   }
 
   -- update records
@@ -321,9 +312,10 @@ local function init_records()
       if field_name == "uri" then
         -- change local:// to regular:// scheme and parse url
         record[field_name] = Url(field:gsub("^file", "regular", 1))
-      else
-        -- other fields  are iso timestamps
+      elseif field_name == "visited" or field_name == "modified" or field_name == "added" then
         record[field_name] = parse_iso8601(field)
+      else
+        record[field_name] = field ~= "" and field
       end
 
       i = i + 1
@@ -353,7 +345,7 @@ end
 ---@param local_url Url
 ---@return string?, Error?
 local function local_url_to_xpath(local_url)
-  local href = ("%s://%s"):format(LOCAL_URI_SCHEME, tostring(local_url.path))
+  local href = ("file://%s"):format(tostring(local_url.path))
   local escaped, err = xmlstarlet { "esc", href }
   if not escaped or err then
     return nil, err
@@ -716,6 +708,7 @@ local function run_unit_tests()
   -- record key conversion / lookup
   assert_eq(tostring(recents_record_key(Url("recents://%2Ffoo%2Fbar/@/bar"))), "/foo/bar")
   assert_eq(fs_to_recents_url(Url("/foo/bar.txt")), Url("recents://%2Ffoo%2Fbar.txt/@/bar.txt"))
+  assert_eq(fs_to_recents_url(Url("/foo/bar.txt"), "bar2.txt"), Url("recents://%2Ffoo%2Fbar.txt/@/bar2.txt"))
 
   -- to file conversion
   local f1 = rec_to_file({ uri = Url("/foo/bar.txt"), modified = 2 })
